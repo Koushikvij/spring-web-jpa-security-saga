@@ -4,6 +4,7 @@ spring:
   session:
     store-type: jdbc
     jdbc:
+      datasource: courseDataSource
       initialize-schema: never
     timeout: 8h
   jpa:

@@ -7,8 +7,11 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter;
 import org.springframework.security.web.authentication.WebAuthenticationDetails;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
@@ -50,6 +53,18 @@ public class JsonAuthenticationFilter extends AbstractAuthenticationProcessingFi
             HttpServletResponse response,
             FilterChain chain,
             Authentication authResult) throws IOException, ServletException {
+        // Create session
+        request.getSession(true);
+        
+        // Save authentication to SecurityContextHolder
+        SecurityContext context = SecurityContextHolder.getContext();
+        context.setAuthentication(authResult);
+        
+        // Persist SecurityContext to session
+        HttpSessionSecurityContextRepository repo = new HttpSessionSecurityContextRepository();
+        repo.saveContext(context, request, response);
+        
+        // Continue with success handler
         super.successfulAuthentication(request, response, chain, authResult);
     }
 }
