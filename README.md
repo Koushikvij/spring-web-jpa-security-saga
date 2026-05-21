@@ -22,6 +22,13 @@ A Spring Boot REST API for managing **courses**, **customers**, and **employees*
 - [Configuration](#configuration)
 - [How to Run](#how-to-run)
 - [API Endpoints](#api-endpoints)
+- [Calling the API](#calling-the-api)
+  - [Step 1 — Login](#step-1--login)
+  - [Step 2 — Using the session in Postman](#step-2--using-the-session-in-postman)
+  - [Auth endpoints](#auth-endpoints-1)
+  - [Employee endpoints](#employee-endpoints-1)
+  - [Customer endpoints](#customer-endpoints-1)
+  - [Course endpoints](#course-endpoints-1)
 - [Dummy Data Seeding](#dummy-data-seeding)
 - [Swagger / OpenAPI](#swagger--openapi)
 - [Error Responses](#error-responses)
@@ -163,7 +170,57 @@ course-catalog/
 
 - **JDK 21**
 - **Maven 3.9+** (or use included `./mvnw`)
-- **PostgreSQL** with three databases and users (see below)
+- **PostgreSQL** with three databases and users configured as follows:
+
+### 1. Create roles and databases
+
+Run as a PostgreSQL superuser (`postgres`):
+
+```sql
+CREATE ROLE course WITH LOGIN PASSWORD 'course';
+CREATE DATABASE course_course_db OWNER course;
+
+CREATE ROLE cust WITH LOGIN PASSWORD 'cust';
+CREATE DATABASE course_customer_db OWNER cust;
+
+CREATE ROLE emp WITH LOGIN PASSWORD 'emp';
+CREATE DATABASE course_employee_db OWNER emp;
+```
+
+### 2. Enable login (if roles already exist)
+
+If the roles were created without login access, enable it:
+
+```sql
+ALTER ROLE course WITH LOGIN;
+ALTER ROLE cust WITH LOGIN;
+ALTER ROLE emp WITH LOGIN;
+```
+
+### 3. Grant schema permissions
+
+PostgreSQL 15+ revokes `CREATE` on the `public` schema by default. Connect to **each database** and grant the permission to its owner:
+
+```sql
+-- Connect to course_course_db, then run:
+GRANT CREATE ON SCHEMA public TO course;
+
+-- Connect to course_customer_db, then run:
+GRANT CREATE ON SCHEMA public TO cust;
+
+-- Connect to course_employee_db, then run:
+GRANT CREATE ON SCHEMA public TO emp;
+```
+
+Or using `psql` flags:
+
+```bash
+psql -U postgres -d course_course_db   -c "GRANT CREATE ON SCHEMA public TO course;"
+psql -U postgres -d course_customer_db -c "GRANT CREATE ON SCHEMA public TO cust;"
+psql -U postgres -d course_employee_db -c "GRANT CREATE ON SCHEMA public TO emp;"
+```
+
+Hibernate `ddl-auto: update` handles table creation on startup once these permissions are in place.
 
 ---
 
@@ -177,28 +234,7 @@ Create three databases and users (adjust names/passwords to match `application.y
 | `course_customer_db` | `jdbc:postgresql://localhost:5432/course_customer_db` | `cust` | `cust` |
 | `course_employee_db` | `jdbc:postgresql://localhost:5432/course_employee_db` | `emp` | `emp` |
 
-Example (psql as superuser):
-
-```sql
-CREATE ROLE course WITH LOGIN PASSWORD 'course';
-CREATE DATABASE course_course_db OWNER course;
-
-CREATE ROLE cust WITH LOGIN PASSWORD 'cust';
-CREATE DATABASE course_customer_db OWNER cust;
-
-CREATE ROLE emp WITH LOGIN PASSWORD 'emp';
-CREATE DATABASE course_employee_db OWNER emp;
-```
-
-If these roles already exist but cannot log in, run:
-
-```sql
-ALTER ROLE course WITH LOGIN;
-ALTER ROLE cust WITH LOGIN;
-ALTER ROLE emp WITH LOGIN;
-```
-
-Hibernate `ddl-auto: update` creates/updates tables on startup.
+See the [Prerequisites](#prerequisites) section for the full step-by-step setup (create roles, enable login, grant schema permissions).
 
 ---
 
@@ -352,6 +388,256 @@ Used by all `getAll*` endpoints:
 | `sortDir` | `asc` | `asc` or `desc` |
 
 Page size defaults to **5** per domain until changed via `setRecordsinPage`.
+
+---
+
+## Calling the API
+
+Every endpoint except login requires an active session. The workflow is always: **login first, then call the endpoint**. Postman handles the session cookie automatically once you log in.
+
+---
+
+### Step 1 — Login
+
+**POST** `http://localhost:8080/api/v1/auth/login`
+
+In Postman: set Body → raw → JSON.
+
+```json
+{
+  "username": "admin",
+  "password": "Admin@123"
+}
+```
+
+A successful login returns `200 OK` and sets a `CATALOG_SESSION` cookie. Postman stores this automatically and sends it on every subsequent request to `localhost`.
+
+Other available accounts:
+
+| Username | Password | Role |
+|----------|----------|------|
+| `admin` | `Admin@123` | Full access |
+| `manager` | `Manager@123` | Full access |
+| `employee` | `Employee@123` | GET only (courses & employees) |
+| `customer` | `Customer@123` | GET + enroll (courses & customers) |
+
+---
+
+### Step 2 — Using the session in Postman
+
+No extra setup is needed. After logging in, Postman's cookie jar holds `CATALOG_SESSION` for `localhost`. Every request you send to `http://localhost:8080` will include it automatically. You can confirm this by clicking **Cookies** on any request tab.
+
+To log out at any time: **POST** `http://localhost:8080/api/v1/auth/logout` (no body needed).
+
+---
+
+### Auth endpoints
+
+#### GET current user
+**GET** `http://localhost:8080/api/v1/auth/me`
+
+No body. Returns the currently authenticated user's details.
+
+```json
+{
+  "username": "admin",
+  "role": "ROLE_ADMIN",
+  "displayName": "Administrator"
+}
+```
+
+#### Logout
+**POST** `http://localhost:8080/api/v1/auth/logout`
+
+No body. Clears the session and cookies, returns `200 OK`.
+
+---
+
+### Employee endpoints
+
+#### Get all employees
+**GET** `http://localhost:8080/api/v1/employees/getAllEmployees`
+
+Optional query params: `?page=0&sortBy=name&sortDir=asc`
+
+#### Get one employee
+**GET** `http://localhost:8080/api/v1/employees/getEmployee/1`
+
+Replace `1` with the employee ID.
+
+#### Get courses by employee
+**GET** `http://localhost:8080/api/v1/employees/getCoursesByEmployee/1`
+
+Returns all courses where employee `1` is a content creator.
+
+#### Add employee
+**POST** `http://localhost:8080/api/v1/employees/addEmployee`
+
+Body:
+```json
+{
+  "name": "Jane Smith",
+  "email": "jane.smith@example.com",
+  "role": "Senior Instructor",
+  "department": "Engineering",
+  "salary": 95000.00,
+  "experience": 8.5
+}
+```
+
+#### Update employee
+**PUT** `http://localhost:8080/api/v1/employees/updateEmployee/1`
+
+Body (same structure as add, all fields required):
+```json
+{
+  "name": "Jane Smith",
+  "email": "jane.smith@example.com",
+  "role": "Curriculum Lead",
+  "department": "Education",
+  "salary": 105000.00,
+  "experience": 9.0
+}
+```
+
+#### Delete employee
+**DELETE** `http://localhost:8080/api/v1/employees/deleteEmployee/1`
+
+No body. Unlinks the employee from all courses as a creator, then deletes.
+
+#### Set page size
+**POST** `http://localhost:8080/api/v1/employees/setRecordsinPage?size=10`
+
+No body. Sets how many employees are returned per page on `getAllEmployees`.
+
+---
+
+### Customer endpoints
+
+#### Get all customers
+**GET** `http://localhost:8080/api/v1/customers/getAllCustomers`
+
+Optional query params: `?page=0&sortBy=name&sortDir=asc`
+
+#### Get one customer
+**GET** `http://localhost:8080/api/v1/customers/getCustomer/1`
+
+#### Add customer
+**POST** `http://localhost:8080/api/v1/customers/addCustomer`
+
+Body:
+```json
+{
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "phone": "+1-555-0101",
+  "enrolledCourseIds": []
+}
+```
+
+#### Update customer
+**PUT** `http://localhost:8080/api/v1/customers/updateCustomer/1`
+
+Body:
+```json
+{
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "phone": "+1-555-0199",
+  "enrolledCourseIds": []
+}
+```
+
+#### Delete customer
+**DELETE** `http://localhost:8080/api/v1/customers/deleteCustomer/1`
+
+No body. Unenrolls the customer from all courses, then deletes.
+
+#### Enroll customer in a course (from customer side)
+**POST** `http://localhost:8080/api/v1/customers/enrollInCourse/1/2`
+
+No body. Enrolls customer `1` in course `2`. Updates both the customer and course records (saga).
+
+#### Set page size
+**POST** `http://localhost:8080/api/v1/customers/setRecordsinPage?size=10`
+
+---
+
+### Course endpoints
+
+#### Get all courses
+**GET** `http://localhost:8080/api/v1/courses/getAllCourses`
+
+Optional query params: `?page=0&sortBy=title&sortDir=asc`
+
+#### Get one course
+**GET** `http://localhost:8080/api/v1/courses/getCourse/1`
+
+#### Get customers enrolled in a course
+**GET** `http://localhost:8080/api/v1/courses/getCustomersByCourse/1`
+
+Returns full customer details for all customers enrolled in course `1`.
+
+#### Get creators of a course
+**GET** `http://localhost:8080/api/v1/courses/getCreatorsByCourse/1`
+
+Returns full employee details for all content creators of course `1`.
+
+#### Add course
+**POST** `http://localhost:8080/api/v1/courses/addCourse`
+
+Body (`contentCreatorIds` must reference existing employee IDs):
+```json
+{
+  "title": "Spring Boot Mastery",
+  "description": "A comprehensive guide to Spring Boot.",
+  "contentCreatorIds": [1, 2],
+  "enrolledCustomerIds": []
+}
+```
+
+#### Update course
+**PUT** `http://localhost:8080/api/v1/courses/updateCourse/1`
+
+Body:
+```json
+{
+  "title": "Spring Boot Mastery — Updated",
+  "description": "Updated course description.",
+  "contentCreatorIds": [1],
+  "enrolledCustomerIds": []
+}
+```
+
+#### Delete course
+**DELETE** `http://localhost:8080/api/v1/courses/deleteCourse/1`
+
+No body. Unenrolls all customers, then deletes the course.
+
+#### Enroll a customer in a course (from course side)
+**POST** `http://localhost:8080/api/v1/courses/enrollCustomer/1/2`
+
+No body. Enrolls customer `2` in course `1`. Equivalent to calling `enrollInCourse` from the customer side — both update the same records.
+
+#### Unenroll a customer from a course
+**DELETE** `http://localhost:8080/api/v1/courses/unenrollCustomer/1/2`
+
+No body. Removes customer `2` from course `1` and updates both records.
+
+#### Assign content creators to a course
+**PUT** `http://localhost:8080/api/v1/courses/assignCreators/1`
+
+Body:
+```json
+{
+  "contentCreatorIds": [1, 3, 5]
+}
+```
+
+Replaces the current creator list with the provided IDs. All IDs must be valid existing employees.
+
+#### Set page size
+**POST** `http://localhost:8080/api/v1/courses/setRecordsinPage?size=10`
 
 ---
 

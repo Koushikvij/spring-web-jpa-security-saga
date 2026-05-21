@@ -4,16 +4,13 @@ spring:
   session:
     store-type: jdbc
     jdbc:
-      initialize-schema: always
+      initialize-schema: never
     timeout: 8h
   jpa:
     open-in-view: false
     show-sql: true
     hibernate:
       ddl-auto: update
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
   datasource:
     employee:
       url: jdbc:postgresql://localhost:5432/course_employee_db
